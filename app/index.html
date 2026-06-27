@@ -105,8 +105,20 @@
           <div class="tool-grid">
             <button class="secondary-button" id="openEditButton" type="button">問題を編集</button>
             <button class="secondary-button" id="openHistoryButton" type="button">履歴を見る</button>
-            <button class="secondary-button" id="exportDataButton" type="button">JSONエクスポート</button>
-            <button class="secondary-button" id="importDataButton" type="button">JSONインポート</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Data</p>
+              <h2>インポート/エクスポート</h2>
+            </div>
+          </div>
+          <div class="tool-grid">
+            <button class="secondary-button" id="importDataButton" type="button">インポート</button>
+            <button class="secondary-button" id="exportDataButton" type="button">全件エクスポート</button>
+            <button class="secondary-button wide-action" id="exportActiveSetButton" type="button">選択中の問題集だけエクスポート</button>
             <input class="hidden-file" id="importDataInput" type="file" accept="application/json,.json">
           </div>
         </section>

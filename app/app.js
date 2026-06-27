@@ -41,6 +41,7 @@ const startExamButton = $("#startExamButton");
 const openEditButton = $("#openEditButton");
 const openHistoryButton = $("#openHistoryButton");
 const exportDataButton = $("#exportDataButton");
+const exportActiveSetButton = $("#exportActiveSetButton");
 const importDataButton = $("#importDataButton");
 const importDataInput = $("#importDataInput");
 const questionCounter = $("#questionCounter");
@@ -346,6 +347,7 @@ function renderDashboard() {
   shuffleChoicesOption.disabled = isResumeMode;
   shuffleQuestionsOption.disabled = isResumeMode;
   openEditButton.disabled = !set;
+  exportActiveSetButton.disabled = !set;
   renameSetButton.disabled = !set;
 
   const existingReminder = dashboardView.querySelector(".export-reminder");
@@ -854,21 +856,41 @@ function formatDateTime(value) {
 }
 
 function exportAppData() {
+  exportJsonData({
+    activeSetId: state.activeSetId,
+    sets: state.sets,
+    attempts: state.attempts,
+    filePrefix: "exam-app-backup",
+  });
+}
+
+function exportActiveQuestionSet() {
+  const set = activeSet();
+  if (!set) return;
+  exportJsonData({
+    activeSetId: set.id,
+    sets: [set],
+    attempts: [],
+    filePrefix: `exam-app-${set.id}`,
+  });
+}
+
+function exportJsonData({ activeSetId, sets, attempts, filePrefix }) {
   const exportedAt = new Date().toISOString();
   const data = {
     schema: "csv-exam-app",
     version: 1,
     exportedAt,
-    activeSetId: state.activeSetId,
-    sets: state.sets,
-    attempts: state.attempts,
+    activeSetId,
+    sets,
+    attempts,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   const date = exportedAt.slice(0, 10).replaceAll("-", "");
   link.href = url;
-  link.download = `exam-app-backup-${date}.json`;
+  link.download = `${filePrefix}-${date}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -896,20 +918,58 @@ function importAppDataFromFile(event) {
 }
 
 function importAppData(data) {
-  if (!data || data.schema !== "csv-exam-app" || !Array.isArray(data.sets)) {
+  if (!data || data.schema !== "csv-exam-app") {
     alert("このアプリのバックアップJSONではありません。");
     return;
   }
 
-  const sets = data.sets.filter(isValidQuestionSet);
+  const importSets = Array.isArray(data.sets) ? data.sets : data.set ? [data.set] : [];
+  const sets = importSets.filter(isValidQuestionSet);
   if (!sets.length) {
     alert("取り込める問題集がありません。");
     return;
   }
 
-  state.sets = sets;
-  state.attempts = Array.isArray(data.attempts) ? data.attempts : [];
-  state.activeSetId = sets.some((set) => set.id === data.activeSetId) ? data.activeSetId : sets[0].id;
+  const skippedSetIds = new Set();
+  const staleSets = sets.filter((set) => {
+    const existing = state.sets.find((item) => item.id === set.id);
+    return existing && isBefore(data.exportedAt, existing.updatedAt);
+  });
+  if (staleSets.length) {
+    const names = staleSets.map((set) => `${set.title} (${set.id})`).join("\n");
+    const shouldContinue = confirm(
+      `インポートJSONの exportedAt が、既存問題集の更新日付より古い可能性があります。\n\n${names}\n\n更新すると、本文・選択肢・解説が古い内容に戻る可能性があります。更新しますか？`,
+    );
+    if (!shouldContinue) {
+      staleSets.forEach((set) => skippedSetIds.add(set.id));
+    }
+  }
+
+  let addedCount = 0;
+  let updatedCount = 0;
+  sets.forEach((set) => {
+    if (skippedSetIds.has(set.id)) return;
+    const existingIndex = state.sets.findIndex((item) => item.id === set.id);
+    if (existingIndex >= 0) {
+      state.sets[existingIndex] = mergeImportedQuestionSet(state.sets[existingIndex], set, data.exportedAt);
+      updatedCount += 1;
+    } else {
+      state.sets.push(normalizeImportedQuestionSet(set, data.exportedAt));
+      addedCount += 1;
+    }
+  });
+
+  const importedAttempts = Array.isArray(data.attempts) ? data.attempts : [];
+  const existingAttemptIds = new Set(state.attempts.map((attempt) => attempt.id));
+  let attemptCount = 0;
+  importedAttempts.forEach((attempt) => {
+    if (!attempt?.id || existingAttemptIds.has(attempt.id)) return;
+    state.attempts.push(attempt);
+    existingAttemptIds.add(attempt.id);
+    attemptCount += 1;
+  });
+
+  state.activeSetId = state.sets[0]?.id || "";
   state.activeEditQuestionId = "";
   state.editingExamQuestionId = "";
   state.exam = null;
@@ -920,7 +980,38 @@ function importAppData(data) {
   saveAttempts();
   savePausedExam();
   saveExportReminder();
+  alert(
+    `インポートしました。\n追加: ${addedCount} 件\n更新: ${updatedCount} 件\n履歴追加: ${attemptCount} 件\nスキップ: ${skippedSetIds.size} 件`,
+  );
   showView("dashboard");
+}
+
+function mergeImportedQuestionSet(existingSet, importedSet, exportedAt) {
+  const existingFlags = new Map(existingSet.questions.map((question) => [question.id, question.flag]));
+  const mergedSet = normalizeImportedQuestionSet(importedSet, exportedAt);
+  mergedSet.questions = mergedSet.questions.map((question) => ({
+    ...question,
+    flag: existingFlags.get(question.id) || question.flag || "none",
+  }));
+  return mergedSet;
+}
+
+function normalizeImportedQuestionSet(set, exportedAt) {
+  const fallbackUpdatedAt = exportedAt || set.updatedAt || new Date().toISOString();
+  return {
+    ...clone(set),
+    updatedAt: set.updatedAt || fallbackUpdatedAt,
+    questions: set.questions.map((question) => ({
+      ...question,
+      flag: ["none", "circle", "triangle", "cross"].includes(question.flag) ? question.flag : "none",
+    })),
+  };
+}
+
+function isBefore(left, right) {
+  const leftTime = Date.parse(left || "");
+  const rightTime = Date.parse(right || "");
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime < rightTime;
 }
 
 function isValidQuestionSet(set) {
@@ -970,6 +1061,7 @@ examModeSelect.addEventListener("change", render);
 openEditButton.addEventListener("click", () => showView("editor"));
 openHistoryButton.addEventListener("click", () => showView("history"));
 exportDataButton.addEventListener("click", exportAppData);
+exportActiveSetButton.addEventListener("click", exportActiveQuestionSet);
 importDataButton.addEventListener("click", () => importDataInput.click());
 importDataInput.addEventListener("change", importAppDataFromFile);
 gradeButton.addEventListener("click", gradeCurrentOrExam);

@@ -234,6 +234,10 @@ h2 {
   grid-template-columns: repeat(2, 1fr);
 }
 
+.wide-action {
+  grid-column: 1 / -1;
+}
+
 .mode-button {
   width: 100%;
   min-height: 72px;

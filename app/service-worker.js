@@ -1,4 +1,4 @@
-const CACHE_NAME = "csv-exam-app-v16";
+const CACHE_NAME = "csv-exam-app-v17";
 const ASSETS = [
   "./",
   "./index.html",
