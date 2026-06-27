@@ -530,8 +530,8 @@ function saveExamQuestionEdit(event) {
 
 function flagButtonHtml(question, flag, label) {
   return `
-    <button class="flag-button ${question.flag === flag ? "active" : ""}" type="button" data-flag="${flag}">
-      ${label}フラグ
+    <button class="flag-button flag-${flag} ${question.flag === flag ? "active" : ""}" type="button" data-flag="${flag}">
+      ${label}
     </button>
   `;
 }
