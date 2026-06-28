@@ -597,8 +597,9 @@ function renderExamControls() {
     gradeButton.disabled = !hasAnswer || graded;
     gradeButton.textContent = graded ? (isLast ? "結果確認" : "採点済み") : "この問題を採点";
   } else {
-    gradeButton.disabled = state.exam.finished;
-    gradeButton.textContent = state.exam.finished ? "採点済み" : "まとめて採点";
+    const allAnswered = answeredCount() === state.exam.questions.length;
+    gradeButton.disabled = state.exam.finished || !allAnswered;
+    gradeButton.textContent = state.exam.finished ? "採点済み" : allAnswered ? "まとめて採点" : "全問回答後に採点";
   }
 }
 
@@ -628,6 +629,7 @@ function gradeCurrentOrExam() {
       state.exam.finished = true;
     }
   } else {
+    if (answeredCount() !== state.exam.questions.length) return;
     state.exam.questions.forEach((question) => {
       state.exam.gradedQuestions[question.id] = true;
     });
