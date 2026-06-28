@@ -4,6 +4,7 @@ const ATTEMPTS_KEY = "csv-exam-attempts-v2";
 const ACTIVE_KEY = "csv-exam-active-set-v2";
 const EXPORT_REMINDER_KEY = "csv-exam-export-reminder-v1";
 const PAUSED_EXAM_KEY = "csv-exam-paused-v1";
+const VALID_FLAGS = ["circle", "triangle", "cross"];
 
 const state = {
   sets: [],
@@ -37,6 +38,7 @@ const examModeSelect = $("#examModeSelect");
 const targetFlagInputs = Array.from(document.querySelectorAll("input[name='targetFlag']"));
 const shuffleChoicesOption = $("#shuffleChoicesOption");
 const shuffleQuestionsOption = $("#shuffleQuestionsOption");
+const questionLimitInput = $("#questionLimitInput");
 const startExamButton = $("#startExamButton");
 const openEditButton = $("#openEditButton");
 const openHistoryButton = $("#openHistoryButton");
@@ -125,6 +127,7 @@ function groupQuestions(rows) {
         text: row.question_text,
         explanation: "",
         flag: "none",
+        flags: [],
         choices: [],
       });
     }
@@ -161,17 +164,40 @@ function shuffleItems(items) {
   return shuffled;
 }
 
-function normalizeQuestionFlags() {
-  state.sets.forEach((set) => {
-    set.questions.forEach((question) => {
-      if (!["none", "circle", "triangle", "cross"].includes(question.flag)) {
-        question.flag = "none";
-      }
-    });
+function normalizeQuestionFlagValue(question) {
+  const flags = Array.isArray(question.flags)
+    ? question.flags
+    : VALID_FLAGS.includes(question.flag)
+      ? [question.flag]
+      : [];
+  return [...new Set(flags.filter((flag) => VALID_FLAGS.includes(flag)))];
+}
+
+function normalizeQuestionsFlags(questions) {
+  questions.forEach((question) => {
+    question.flags = normalizeQuestionFlagValue(question);
+    question.flag = question.flags[0] || "none";
   });
 }
 
+function normalizeQuestionSetsFlags(sets) {
+  sets.forEach((set) => {
+    normalizeQuestionsFlags(set.questions || []);
+  });
+}
+
+function normalizeQuestionFlags() {
+  normalizeQuestionSetsFlags(state.sets);
+  if (state.pausedExam?.exam?.questions) {
+    normalizeQuestionsFlags(state.pausedExam.exam.questions);
+  }
+  if (state.exam?.questions) {
+    normalizeQuestionsFlags(state.exam.questions);
+  }
+}
+
 function saveSets() {
+  normalizeQuestionSetsFlags(state.sets);
   localStorage.setItem(SETS_KEY, JSON.stringify(state.sets));
   localStorage.setItem(ACTIVE_KEY, state.activeSetId);
 }
@@ -244,6 +270,18 @@ function answeredCount() {
   return state.exam.questions.filter((question) => state.exam.answers[question.id]).length;
 }
 
+function gradedAnsweredCount() {
+  if (!state.exam) return 0;
+  return state.exam.questions.filter((question) => state.exam.answers[question.id] && isQuestionGraded(question.id)).length;
+}
+
+function correctGradedAnsweredCount() {
+  if (!state.exam) return 0;
+  return state.exam.questions.filter(
+    (question) => state.exam.answers[question.id] && isQuestionGraded(question.id) && selectedChoice(question)?.isCorrect,
+  ).length;
+}
+
 function isQuestionGraded(questionId) {
   return Boolean(state.exam?.gradedQuestions[questionId] || state.exam?.finished);
 }
@@ -257,9 +295,40 @@ function selectedTargetFlags() {
   return targetFlagInputs.filter((input) => input.checked).map((input) => input.value);
 }
 
+function questionFlags(question) {
+  return normalizeQuestionFlagValue(question);
+}
+
+function hasQuestionFlag(question, flag) {
+  return questionFlags(question).includes(flag);
+}
+
+function questionMatchesTargetFlags(question, targetFlags) {
+  return targetFlags.some((flag) => hasQuestionFlag(question, flag));
+}
+
 function scoreForExam() {
   if (!state.exam) return 0;
   return state.exam.questions.filter((question) => selectedChoice(question)?.isCorrect).length;
+}
+
+function selectedQuestionLimit() {
+  const value = Number.parseInt(questionLimitInput.value, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function filteredQuestionCountForActiveSet() {
+  const set = activeSet();
+  const targetFlags = selectedTargetFlags();
+  return targetFlags.length
+    ? set?.questions.filter((question) => questionMatchesTargetFlags(question, targetFlags)).length || 0
+    : set?.questions.length || 0;
+}
+
+function syncQuestionLimitInputToFilteredCount() {
+  const filteredCount = filteredQuestionCountForActiveSet();
+  questionLimitInput.value = filteredCount ? String(filteredCount) : "";
+  questionLimitInput.max = filteredCount || "";
 }
 
 function startExam() {
@@ -274,15 +343,19 @@ function startExam() {
     targetFlags: selectedTargetFlags(),
     shuffleChoices: shuffleChoicesOption.checked,
     shuffleQuestions: shuffleQuestionsOption.checked,
+    questionLimit: selectedQuestionLimit(),
   };
   let questions = clone(set.questions);
 
   if (options.targetFlags.length) {
-    questions = questions.filter((question) => options.targetFlags.includes(question.flag));
+    questions = questions.filter((question) => questionMatchesTargetFlags(question, options.targetFlags));
   }
   if (!questions.length) return;
   if (options.shuffleQuestions) {
     questions = shuffleItems(questions);
+  }
+  if (options.questionLimit) {
+    questions = questions.slice(0, options.questionLimit);
   }
   if (options.shuffleChoices) {
     questions = questions.map((question) => ({
@@ -309,6 +382,7 @@ function startExam() {
 function resumePausedExam() {
   if (!state.pausedExam?.exam) return;
   state.exam = clone(state.pausedExam.exam);
+  normalizeQuestionsFlags(state.exam.questions);
   state.needsExportReminder = Boolean(state.pausedExam.needsExportReminder);
   state.editingExamQuestionId = "";
   showView("exam");
@@ -336,9 +410,10 @@ function renderDashboard() {
     : "問題集がありません。";
 
   const targetFlags = selectedTargetFlags();
-  const filteredCount = targetFlags.length
-    ? set?.questions.filter((question) => targetFlags.includes(question.flag)).length || 0
-    : set?.questions.length || 0;
+  const filteredCount = filteredQuestionCountForActiveSet();
+  if (!questionLimitInput.value && filteredCount) {
+    questionLimitInput.value = String(filteredCount);
+  }
   const hasEmptyFlagFilter = Boolean(targetFlags.length && !filteredCount);
   const isResumeMode = examModeSelect.value === "resume";
   startExamButton.disabled = isResumeMode
@@ -356,6 +431,8 @@ function renderDashboard() {
   });
   shuffleChoicesOption.disabled = isResumeMode;
   shuffleQuestionsOption.disabled = isResumeMode;
+  questionLimitInput.disabled = isResumeMode;
+  questionLimitInput.max = filteredCount || "";
   openEditButton.disabled = !set;
   exportActiveSetButton.disabled = !set;
   renameSetButton.disabled = !set;
@@ -376,11 +453,14 @@ function renderExam() {
   const total = state.exam.questions.length;
   const current = state.exam.questions[state.exam.currentIndex];
   const answered = answeredCount();
+  const gradedAnswered = gradedAnsweredCount();
+  const correctGradedAnswered = correctGradedAnsweredCount();
+  const currentScoreRate = gradedAnswered ? `${Math.round((correctGradedAnswered / gradedAnswered) * 100)}%` : "-";
   const modeLabel = state.exam.mode === "instant" ? "都度採点" : "一括採点";
   appTitle.textContent = `${state.exam.setTitle} / ${modeLabel}`;
   questionCounter.textContent = `問題 ${state.exam.currentIndex + 1} / ${total}`;
-  answeredCounter.textContent = `${answered} 問回答済み`;
-  progressFill.style.width = `${(answered / total) * 100}%`;
+  answeredCounter.textContent = `正答率 ${currentScoreRate} / ${answered}問回答済み`;
+  progressFill.style.width = `${(gradedAnswered / total) * 100}%`;
 
   renderQuestion(current);
   renderQuestionNav();
@@ -542,7 +622,7 @@ function saveExamQuestionEdit(event) {
 
 function flagButtonHtml(question, flag, label) {
   return `
-    <button class="flag-button flag-${flag} ${question.flag === flag ? "active" : ""}" type="button" data-flag="${flag}">
+    <button class="flag-button flag-${flag} ${hasQuestionFlag(question, flag) ? "active" : ""}" type="button" data-flag="${flag}">
       ${label}
     </button>
   `;
@@ -551,11 +631,14 @@ function flagButtonHtml(question, flag, label) {
 function setQuestionFlag(questionId, flag) {
   const question = state.exam.questions.find((item) => item.id === questionId);
   if (!question) return;
-  question.flag = question.flag === flag ? "none" : flag;
+  const flags = questionFlags(question);
+  question.flags = flags.includes(flag) ? flags.filter((item) => item !== flag) : [...flags, flag];
+  question.flag = question.flags[0] || "none";
 
   const set = state.sets.find((item) => item.id === state.exam.setId);
   const sourceQuestion = set?.questions.find((item) => item.id === questionId);
   if (sourceQuestion) {
+    sourceQuestion.flags = [...question.flags];
     sourceQuestion.flag = question.flag;
     set.updatedAt = new Date().toISOString();
     saveSets();
@@ -750,6 +833,7 @@ function addQuestion() {
     text: "新しい問題文",
     explanation: "",
     flag: "none",
+    flags: [],
     choices: [1, 2, 3, 4].map((number) => ({
       id: `${questionId}_c${String(number).padStart(3, "0")}`,
       text: `選択肢 ${number}`,
@@ -827,6 +911,7 @@ function selectQuestionSet() {
   state.activeSetId = setSelect.value;
   state.activeEditQuestionId = "";
   saveSets();
+  syncQuestionLimitInputToFilteredCount();
   render();
 }
 
@@ -889,12 +974,14 @@ function exportActiveQuestionSet() {
 
 function exportJsonData({ activeSetId, sets, attempts, filePrefix }) {
   const exportedAt = new Date().toISOString();
+  const exportSets = clone(sets);
+  normalizeQuestionSetsFlags(exportSets);
   const data = {
     schema: "csv-exam-app",
     version: 1,
     exportedAt,
     activeSetId,
-    sets,
+    sets: exportSets,
     attempts,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -999,12 +1086,13 @@ function importAppData(data) {
 }
 
 function mergeImportedQuestionSet(existingSet, importedSet, exportedAt) {
-  const existingFlags = new Map(existingSet.questions.map((question) => [question.id, question.flag]));
+  const existingFlags = new Map(existingSet.questions.map((question) => [question.id, normalizeQuestionFlagValue(question)]));
   const mergedSet = normalizeImportedQuestionSet(importedSet, exportedAt);
   mergedSet.questions = mergedSet.questions.map((question) => ({
     ...question,
-    flag: existingFlags.get(question.id) || question.flag || "none",
+    flags: existingFlags.get(question.id) || question.flags || [],
   }));
+  normalizeQuestionsFlags(mergedSet.questions);
   return mergedSet;
 }
 
@@ -1015,7 +1103,8 @@ function normalizeImportedQuestionSet(set, exportedAt) {
     updatedAt: set.updatedAt || fallbackUpdatedAt,
     questions: set.questions.map((question) => ({
       ...question,
-      flag: ["none", "circle", "triangle", "cross"].includes(question.flag) ? question.flag : "none",
+      flags: normalizeQuestionFlagValue(question),
+      flag: normalizeQuestionFlagValue(question)[0] || "none",
     })),
   };
 }
@@ -1069,9 +1158,14 @@ createSetButton.addEventListener("click", createQuestionSet);
 renameSetButton.addEventListener("click", renameQuestionSet);
 startExamButton.addEventListener("click", startExam);
 targetFlagInputs.forEach((input) => {
-  input.addEventListener("change", render);
+  input.addEventListener("change", () => {
+    syncQuestionLimitInputToFilteredCount();
+    render();
+  });
 });
 examModeSelect.addEventListener("change", render);
+shuffleQuestionsOption.addEventListener("change", render);
+questionLimitInput.addEventListener("input", render);
 openEditButton.addEventListener("click", () => showView("editor"));
 openHistoryButton.addEventListener("click", () => showView("history"));
 exportDataButton.addEventListener("click", exportAppData);

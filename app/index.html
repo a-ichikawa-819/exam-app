@@ -73,7 +73,7 @@
               採点方式
               <select id="examModeSelect">
                 <option value="batch">一括採点</option>
-                <option value="instant">都度採点</option>
+                <option value="instant" selected>都度採点</option>
                 <option value="resume">中断したところから再開</option>
               </select>
             </label>
@@ -104,6 +104,10 @@
                 <span>問題順をランダム</span>
               </label>
             </div>
+            <label class="field-label">
+              実施する問題数
+              <input id="questionLimitInput" type="number" min="1" step="1" inputmode="numeric" placeholder="未入力なら全問">
+            </label>
             <button class="primary-button" id="startExamButton" type="button">スタート</button>
           </div>
         </section>
