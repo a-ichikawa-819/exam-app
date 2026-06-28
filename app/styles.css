@@ -205,6 +205,23 @@ h2 {
 
 .option-grid {
   display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.flag-filter-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.option-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.flag-filter-grid {
+  display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
@@ -226,6 +243,28 @@ h2 {
 .option-row input {
   width: 18px;
   height: 18px;
+}
+
+.flag-option {
+  grid-template-columns: 20px 1fr;
+  justify-items: center;
+  font-size: 1.15rem;
+}
+
+.flag-option:has(input:checked) {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.flag-option.flag-circle:has(input:checked) {
+  background: var(--ok-soft);
+}
+
+.flag-option.flag-triangle:has(input:checked) {
+  background: var(--caution-soft);
+}
+
+.flag-option.flag-cross:has(input:checked) {
+  background: var(--warn-soft);
 }
 
 .mode-grid,

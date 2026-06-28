@@ -34,7 +34,7 @@ const setNameInput = $("#setNameInput");
 const renameSetButton = $("#renameSetButton");
 const createSetButton = $("#createSetButton");
 const examModeSelect = $("#examModeSelect");
-const flagOnlyOption = $("#flagOnlyOption");
+const targetFlagInputs = Array.from(document.querySelectorAll("input[name='targetFlag']"));
 const shuffleChoicesOption = $("#shuffleChoicesOption");
 const shuffleQuestionsOption = $("#shuffleQuestionsOption");
 const startExamButton = $("#startExamButton");
@@ -253,6 +253,10 @@ function selectedChoice(question) {
   return question.choices.find((choice) => choice.id === selectedId);
 }
 
+function selectedTargetFlags() {
+  return targetFlagInputs.filter((input) => input.checked).map((input) => input.value);
+}
+
 function scoreForExam() {
   if (!state.exam) return 0;
   return state.exam.questions.filter((question) => selectedChoice(question)?.isCorrect).length;
@@ -267,14 +271,14 @@ function startExam() {
   const set = activeSet();
   if (!set?.questions.length) return;
   const options = {
-    flagOnly: flagOnlyOption.checked,
+    targetFlags: selectedTargetFlags(),
     shuffleChoices: shuffleChoicesOption.checked,
     shuffleQuestions: shuffleQuestionsOption.checked,
   };
   let questions = clone(set.questions);
 
-  if (options.flagOnly) {
-    questions = questions.filter((question) => ["triangle", "cross"].includes(question.flag));
+  if (options.targetFlags.length) {
+    questions = questions.filter((question) => options.targetFlags.includes(question.flag));
   }
   if (!questions.length) return;
   if (options.shuffleQuestions) {
@@ -331,19 +335,25 @@ function renderDashboard() {
     ? `${set.description} / ${set.questions.length} 問 / 更新: ${formatDateTime(set.updatedAt)}`
     : "問題集がありません。";
 
-  const filteredCount = set?.questions.filter((question) => ["triangle", "cross"].includes(question.flag)).length || 0;
+  const targetFlags = selectedTargetFlags();
+  const filteredCount = targetFlags.length
+    ? set?.questions.filter((question) => targetFlags.includes(question.flag)).length || 0
+    : set?.questions.length || 0;
+  const hasEmptyFlagFilter = Boolean(targetFlags.length && !filteredCount);
   const isResumeMode = examModeSelect.value === "resume";
   startExamButton.disabled = isResumeMode
     ? !state.pausedExam?.exam
-    : !set?.questions.length || (flagOnlyOption.checked && !filteredCount);
+    : !set?.questions.length || hasEmptyFlagFilter;
   startExamButton.textContent = isResumeMode
     ? state.pausedExam?.exam
       ? "再開"
       : "中断データなし"
-    : flagOnlyOption.checked && !filteredCount
+    : hasEmptyFlagFilter
       ? "対象フラグなし"
       : "スタート";
-  flagOnlyOption.disabled = isResumeMode;
+  targetFlagInputs.forEach((input) => {
+    input.disabled = isResumeMode;
+  });
   shuffleChoicesOption.disabled = isResumeMode;
   shuffleQuestionsOption.disabled = isResumeMode;
   openEditButton.disabled = !set;
@@ -1056,7 +1066,9 @@ setSelect.addEventListener("change", selectQuestionSet);
 createSetButton.addEventListener("click", createQuestionSet);
 renameSetButton.addEventListener("click", renameQuestionSet);
 startExamButton.addEventListener("click", startExam);
-flagOnlyOption.addEventListener("change", render);
+targetFlagInputs.forEach((input) => {
+  input.addEventListener("change", render);
+});
 examModeSelect.addEventListener("change", render);
 openEditButton.addEventListener("click", () => showView("editor"));
 openHistoryButton.addEventListener("click", () => showView("history"));

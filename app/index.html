@@ -77,11 +77,24 @@
                 <option value="resume">中断したところから再開</option>
               </select>
             </label>
+            <div class="flag-filter-panel">
+              <span class="option-label">対象フラグ</span>
+              <div class="flag-filter-grid">
+                <label class="option-row flag-option flag-circle">
+                  <input name="targetFlag" type="checkbox" value="circle">
+                  <span>〇</span>
+                </label>
+                <label class="option-row flag-option flag-triangle">
+                  <input name="targetFlag" type="checkbox" value="triangle">
+                  <span>△</span>
+                </label>
+                <label class="option-row flag-option flag-cross">
+                  <input name="targetFlag" type="checkbox" value="cross">
+                  <span>×</span>
+                </label>
+              </div>
+            </div>
             <div class="option-grid">
-              <label class="option-row">
-                <input id="flagOnlyOption" type="checkbox">
-                <span>△・×フラグのみ実施</span>
-              </label>
               <label class="option-row">
                 <input id="shuffleChoicesOption" type="checkbox">
                 <span>選択肢をシャッフル</span>
